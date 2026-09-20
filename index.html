@@ -1,0 +1,455 @@
+<!doctype html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Spotify speler</title>
+<style>
+  :root {
+    --bg: #0c0d0f;
+    --text: #f4f5f7;
+    --muted: rgba(244, 245, 247, 0.62);
+    --track: rgba(255, 255, 255, 0.22);
+    --accent: #1ed760;
+    --font: "Avenir Next", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", sans-serif;
+    box-sizing: border-box;
+  }
+  *, *::before, *::after { box-sizing: inherit; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+  button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
+  button:focus-visible, input:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; border-radius: 8px; }
+
+  /* Achtergrond: uitvergrote, vervaagde cover */
+  #ambient {
+    position: fixed; inset: -10%;
+    background-size: cover; background-position: center;
+    filter: blur(70px) saturate(1.5) brightness(0.55);
+    transition: background-image 0.6s ease;
+    z-index: 0;
+  }
+  #shade { position: fixed; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,0.15), rgba(0,0,0,0.55)); z-index: 1; }
+
+  /* Spelerlayout */
+  #player {
+    position: relative; z-index: 2;
+    height: 100%;
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    padding: max(20px, env(safe-area-inset-top)) 24px max(28px, env(safe-area-inset-bottom));
+  }
+  #player.on { display: flex; }
+
+  .topbar { width: 100%; display: flex; justify-content: flex-end; gap: 6px; min-height: 40px; }
+  .iconbtn { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); transition: color .15s, background .15s; }
+  .iconbtn:hover { color: var(--text); background: rgba(255,255,255,0.1); }
+  .iconbtn svg { width: 22px; height: 22px; }
+
+  .stage { flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; }
+  #cover {
+    height: min(100%, 92vw);
+    aspect-ratio: 1;
+    max-width: 100%;
+    object-fit: cover;
+    border-radius: 14px;
+    background: rgba(255,255,255,0.06);
+    box-shadow: 0 30px 80px rgba(0,0,0,0.55), 0 8px 24px rgba(0,0,0,0.4);
+    transition: transform .35s ease, opacity .25s ease;
+  }
+  #cover.paused { transform: scale(0.94); }
+
+  .bottom { width: min(720px, 100%); }
+  .meta { text-align: left; margin: 26px 0 18px; min-width: 0; }
+  #title { font-size: clamp(22px, 3.6vw, 34px); font-weight: 700; line-height: 1.15; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.01em; }
+  #artist { font-size: clamp(16px, 2.2vw, 20px); color: var(--muted); margin: 6px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* Tijdlijn */
+  .timeline { display: flex; align-items: center; gap: 14px; }
+  .timeline time { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 40px; }
+  .timeline time:last-child { text-align: right; }
+  #seek {
+    -webkit-appearance: none; appearance: none;
+    flex: 1; height: 22px; background: transparent; margin: 0; cursor: pointer;
+    --p: 0%;
+  }
+  #seek::-webkit-slider-runnable-track {
+    height: 5px; border-radius: 3px;
+    background: linear-gradient(to right, var(--text) var(--p), var(--track) var(--p));
+  }
+  #seek::-moz-range-track { height: 5px; border-radius: 3px; background: var(--track); }
+  #seek::-moz-range-progress { height: 5px; border-radius: 3px; background: var(--text); }
+  #seek::-webkit-slider-thumb {
+    -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
+    background: var(--text); margin-top: -4.5px; transform: scale(0); transition: transform .12s;
+  }
+  #seek::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: var(--text); transform: scale(0); transition: transform .12s; }
+  #seek:hover::-webkit-slider-thumb, #seek:active::-webkit-slider-thumb, #seek:focus-visible::-webkit-slider-thumb { transform: scale(1); }
+  #seek:hover::-moz-range-thumb, #seek:active::-moz-range-thumb, #seek:focus-visible::-moz-range-thumb { transform: scale(1); }
+
+  /* Knoppen */
+  .controls { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
+  .controls .side { width: 44px; height: 44px; display: grid; place-items: center; color: var(--muted); position: relative; border-radius: 50%; }
+  .controls .side:hover { color: var(--text); }
+  .controls .side.active { color: var(--accent); }
+  .controls .side.active::after { content: ""; position: absolute; bottom: 3px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--accent); }
+  .controls svg { width: 26px; height: 26px; }
+  .controls .skip { width: 56px; height: 56px; display: grid; place-items: center; border-radius: 50%; }
+  .controls .skip svg { width: 34px; height: 34px; }
+  .controls .skip:hover { background: rgba(255,255,255,0.1); }
+  #play { width: 76px; height: 76px; border-radius: 50%; background: var(--text); color: #0c0d0f; display: grid; place-items: center; transition: transform .12s; }
+  #play:hover { transform: scale(1.06); }
+  #play:active { transform: scale(0.97); }
+  #play svg { width: 34px; height: 34px; }
+  #repeat-one { position: absolute; font-size: 9px; font-weight: 700; right: 8px; top: 8px; display: none; }
+  .side.one #repeat-one { display: block; }
+
+  /* Instellen / verbinden / leeg */
+  .panel {
+    position: relative; z-index: 2;
+    height: 100%; display: none; place-items: center; padding: 24px; overflow-y: auto;
+  }
+  .panel.on { display: grid; }
+  .card { width: min(520px, 100%); background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 18px; padding: 30px; backdrop-filter: blur(20px); }
+  .card h1 { font-size: 26px; margin: 0 0 8px; letter-spacing: -0.01em; }
+  .card p { color: var(--muted); line-height: 1.55; margin: 0 0 14px; }
+  .card ol { color: var(--muted); line-height: 1.6; padding-left: 20px; margin: 0 0 20px; }
+  .card li { margin-bottom: 6px; }
+  .card a { color: var(--text); }
+  .card code, .uri { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; background: rgba(255,255,255,0.1); padding: 2px 7px; border-radius: 6px; color: var(--text); word-break: break-all; }
+  .card input[type=text] { width: 100%; padding: 13px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.3); color: var(--text); font: inherit; margin-bottom: 14px; }
+  .btn { display: inline-block; background: var(--accent); color: #05140a; font-weight: 700; padding: 13px 26px; border-radius: 999px; font-size: 16px; }
+  .btn:hover { filter: brightness(1.08); }
+  .warn { background: rgba(255, 180, 60, 0.14); border: 1px solid rgba(255, 180, 60, 0.4); color: #ffd9a0; border-radius: 10px; padding: 10px 12px; font-size: 14px; line-height: 1.45; margin-bottom: 16px; display: none; }
+  .warn.on { display: block; }
+  .center { text-align: center; }
+  #toast { position: fixed; z-index: 5; left: 50%; bottom: 24px; transform: translateX(-50%); background: rgba(0,0,0,0.75); padding: 10px 16px; border-radius: 999px; font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: 90vw; text-align: center; }
+  #toast.on { opacity: 1; }
+
+  @media (max-height: 560px) {
+    .meta { margin: 14px 0 8px; }
+    #play { width: 60px; height: 60px; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+</head>
+<body>
+<div id="ambient"></div>
+<div id="shade"></div>
+
+<!-- Eerste keer instellen -->
+<section id="setup" class="panel">
+  <div class="card">
+    <h1>Spotify koppelen</h1>
+    <p>Je hebt eenmalig een eigen Spotify-app nodig. Dat kost twee minuten en is gratis.</p>
+    <ol>
+      <li>Ga naar <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a> en maak een app.</li>
+      <li>Voeg bij Redirect URIs precies dit adres toe: <span class="uri" id="uri"></span></li>
+      <li>Vink Web API aan, sla op en plak hieronder je Client ID.</li>
+    </ol>
+    <div class="warn" id="uriwarn"></div>
+    <input type="text" id="cid" placeholder="Client ID" autocomplete="off" spellcheck="false">
+    <button class="btn" id="connect">Verbinden met Spotify</button>
+  </div>
+</section>
+
+<!-- Verbonden, maar niks aan het afspelen -->
+<section id="idle" class="panel">
+  <div class="card center">
+    <h1>Er speelt niks</h1>
+    <p>Open Spotify op je telefoon of computer en start een nummer. Het verschijnt hier vanzelf.</p>
+  </div>
+</section>
+
+<!-- Speler -->
+<main id="player">
+  <div class="topbar">
+    <button class="iconbtn" id="fs" title="Volledig scherm" aria-label="Volledig scherm">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+    </button>
+    <button class="iconbtn" id="logout" title="Ontkoppelen" aria-label="Ontkoppelen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+    </button>
+  </div>
+
+  <div class="stage"><img id="cover" alt="Albumcover"></div>
+
+  <div class="bottom">
+    <div class="meta">
+      <h2 id="title">&nbsp;</h2>
+      <p id="artist">&nbsp;</p>
+    </div>
+
+    <div class="timeline">
+      <time id="tcur">0:00</time>
+      <input type="range" id="seek" min="0" max="1000" value="0" step="1" aria-label="Positie in nummer">
+      <time id="tdur">0:00</time>
+    </div>
+
+    <div class="controls">
+      <button class="side" id="shuffle" title="Shuffle" aria-label="Shuffle">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>
+      </button>
+      <button class="skip" id="prev" title="Vorige" aria-label="Vorige">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM20 5v14L9.5 12z"/></svg>
+      </button>
+      <button id="play" title="Afspelen of pauzeren" aria-label="Afspelen of pauzeren">
+        <svg id="ico-play" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z"/></svg>
+        <svg id="ico-pause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>
+      </button>
+      <button class="skip" id="next" title="Volgende" aria-label="Volgende">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM4 5v14l10.5-7z"/></svg>
+      </button>
+      <button class="side" id="repeat" title="Herhalen" aria-label="Herhalen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 0 1-3 3H3"/></svg>
+        <span id="repeat-one">1</span>
+      </button>
+    </div>
+  </div>
+</main>
+
+<div id="toast"></div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const K = { cid: 'sp_client_id', ver: 'sp_verifier', at: 'sp_access', rt: 'sp_refresh', exp: 'sp_expires' };
+  const SCOPES = 'user-read-playback-state user-modify-playback-state user-read-currently-playing';
+  const redirectUri = location.origin + location.pathname;
+
+  const store = {
+    get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } },
+    set: (k, v) => { try { localStorage.setItem(k, v); } catch (e) {} },
+    del: k => { try { localStorage.removeItem(k); } catch (e) {} }
+  };
+
+  // ---------- Helpers ----------
+  const fmt = ms => {
+    const s = Math.max(0, Math.floor(ms / 1000));
+    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  };
+  let toastTimer;
+  function toast(msg) {
+    const t = $('toast'); t.textContent = msg; t.classList.add('on');
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), 3200);
+  }
+  function show(which) {
+    ['setup', 'idle', 'player'].forEach(id => $(id).classList.toggle('on', id === which));
+  }
+  const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  function randomString(n) {
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+    const arr = crypto.getRandomValues(new Uint8Array(n));
+    return Array.from(arr, x => chars[x % chars.length]).join('');
+  }
+
+  // ---------- Inloggen (PKCE, geen geheime sleutel nodig) ----------
+  async function login() {
+    const cid = $('cid').value.trim();
+    if (!cid) { toast('Vul eerst je Client ID in'); return; }
+    store.set(K.cid, cid);
+    const verifier = randomString(96);
+    store.set(K.ver, verifier);
+    const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
+    const p = new URLSearchParams({
+      client_id: cid, response_type: 'code', redirect_uri: redirectUri,
+      code_challenge_method: 'S256', code_challenge: challenge, scope: SCOPES
+    });
+    location.href = 'https://accounts.spotify.com/authorize?' + p;
+  }
+
+  async function tokenRequest(params) {
+    const r = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams(params)
+    });
+    if (!r.ok) throw new Error('token ' + r.status);
+    const d = await r.json();
+    store.set(K.at, d.access_token);
+    store.set(K.exp, String(Date.now() + d.expires_in * 1000));
+    if (d.refresh_token) store.set(K.rt, d.refresh_token);
+  }
+
+  async function handleCallback() {
+    const q = new URLSearchParams(location.search);
+    const code = q.get('code');
+    if (q.get('error')) { history.replaceState({}, '', location.pathname); toast('Inloggen geannuleerd'); return; }
+    if (!code) return;
+    history.replaceState({}, '', location.pathname);
+    try {
+      await tokenRequest({
+        client_id: store.get(K.cid), grant_type: 'authorization_code', code,
+        redirect_uri: redirectUri, code_verifier: store.get(K.ver)
+      });
+    } catch (e) { toast('Koppelen mislukt, probeer opnieuw'); }
+  }
+
+  async function getToken() {
+    const exp = Number(store.get(K.exp) || 0);
+    if (store.get(K.at) && Date.now() < exp - 60000) return store.get(K.at);
+    const rt = store.get(K.rt);
+    if (!rt) return null;
+    try {
+      await tokenRequest({ client_id: store.get(K.cid), grant_type: 'refresh_token', refresh_token: rt });
+      return store.get(K.at);
+    } catch (e) { logout(); return null; }
+  }
+
+  function logout() {
+    [K.at, K.rt, K.exp, K.ver].forEach(store.del);
+    stopPolling(); show('setup');
+  }
+
+  // ---------- Spotify API ----------
+  async function api(path, method = 'GET') {
+    const token = await getToken();
+    if (!token) return { status: 401 };
+    const r = await fetch('https://api.spotify.com/v1' + path, { method, headers: { Authorization: 'Bearer ' + token } });
+    if (r.status === 204) return { status: 204 };
+    if (r.status === 429) return { status: 429 };
+    let data = null;
+    try { data = await r.json(); } catch (e) {}
+    return { status: r.status, data };
+  }
+
+  // ---------- Toestand ----------
+  const S = { id: null, playing: false, progress: 0, duration: 0, at: 0, shuffle: false, repeat: 'off' };
+  let dragging = false;
+
+  async function poll() {
+    const res = await api('/me/player?additional_types=episode');
+    if (res.status === 401) return;
+    if (res.status === 204 || !res.data || !res.data.item) { show('idle'); return; }
+    const d = res.data, it = d.item;
+    show('player');
+    S.playing = d.is_playing;
+    S.progress = d.progress_ms || 0;
+    S.duration = it.duration_ms || 0;
+    S.at = performance.now();
+    S.shuffle = d.shuffle_state;
+    S.repeat = d.repeat_state;
+
+    if (S.id !== it.id) {
+      S.id = it.id;
+      const imgs = (it.album && it.album.images) || it.images || [];
+      const url = imgs.length ? imgs[0].url : '';
+      $('cover').src = url;
+      $('ambient').style.backgroundImage = url ? `url("${url}")` : 'none';
+      $('title').textContent = it.name;
+      $('artist').textContent = it.artists ? it.artists.map(a => a.name).join(', ') : (it.show ? it.show.name : '');
+      document.title = it.name + ' – Spotify speler';
+    }
+    renderControls();
+  }
+
+  function renderControls() {
+    $('ico-play').style.display = S.playing ? 'none' : '';
+    $('ico-pause').style.display = S.playing ? '' : 'none';
+    $('cover').classList.toggle('paused', !S.playing);
+    $('shuffle').classList.toggle('active', S.shuffle);
+    $('repeat').classList.toggle('active', S.repeat !== 'off');
+    $('repeat').classList.toggle('one', S.repeat === 'track');
+    $('tdur').textContent = fmt(S.duration);
+  }
+
+  // Tijdlijn soepel laten lopen tussen twee polls in
+  function tick() {
+    if (!dragging && S.duration) {
+      const pos = Math.min(S.duration, S.progress + (S.playing ? performance.now() - S.at : 0));
+      const frac = pos / S.duration;
+      $('seek').value = Math.round(frac * 1000);
+      $('seek').style.setProperty('--p', (frac * 100) + '%');
+      $('tcur').textContent = fmt(pos);
+    }
+    requestAnimationFrame(tick);
+  }
+
+  let pollTimer;
+  function startPolling() { stopPolling(); poll(); pollTimer = setInterval(poll, 2000); }
+  function stopPolling() { clearInterval(pollTimer); }
+  const soon = () => setTimeout(poll, 350);
+
+  // ---------- Bediening ----------
+  async function control(path, method) {
+    const res = await api(path, method);
+    if (res.status === 403) toast('Bediening werkt alleen met Spotify Premium');
+    else if (res.status === 404) toast('Geen actief apparaat gevonden');
+    else if (res.status === 429) toast('Even rustig, Spotify vraagt om een pauze');
+    soon();
+  }
+
+  $('play').onclick = () => {
+    S.progress = S.progress + (S.playing ? performance.now() - S.at : 0); S.at = performance.now();
+    S.playing = !S.playing; renderControls();
+    control(S.playing ? '/me/player/play' : '/me/player/pause', 'PUT');
+  };
+  $('next').onclick = () => control('/me/player/next', 'POST');
+  $('prev').onclick = () => control('/me/player/previous', 'POST');
+  $('shuffle').onclick = () => { S.shuffle = !S.shuffle; renderControls(); control('/me/player/shuffle?state=' + S.shuffle, 'PUT'); };
+  $('repeat').onclick = () => {
+    S.repeat = S.repeat === 'off' ? 'context' : S.repeat === 'context' ? 'track' : 'off';
+    renderControls(); control('/me/player/repeat?state=' + S.repeat, 'PUT');
+  };
+
+  const seek = $('seek');
+  seek.addEventListener('input', () => {
+    dragging = true;
+    const frac = seek.value / 1000;
+    seek.style.setProperty('--p', (frac * 100) + '%');
+    $('tcur').textContent = fmt(frac * S.duration);
+  });
+  seek.addEventListener('change', () => {
+    const ms = Math.round((seek.value / 1000) * S.duration);
+    S.progress = ms; S.at = performance.now();
+    dragging = false;
+    control('/me/player/seek?position_ms=' + ms, 'PUT');
+  });
+
+  $('fs').onclick = () => {
+    if (document.fullscreenElement) document.exitFullscreen();
+    else document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
+  };
+  $('logout').onclick = logout;
+  $('connect').onclick = login;
+
+  document.addEventListener('keydown', e => {
+    if (!$('player').classList.contains('on')) return;
+    if (e.code === 'Space' && e.target.tagName !== 'BUTTON') { e.preventDefault(); $('play').click(); }
+    else if (e.code === 'ArrowRight' && e.shiftKey) $('next').click();
+    else if (e.code === 'ArrowLeft' && e.shiftKey) $('prev').click();
+    else if (e.key === 'f') $('fs').click();
+  });
+
+  // ---------- Start ----------
+  async function init() {
+    $('uri').textContent = redirectUri;
+    $('cid').value = store.get(K.cid) || '';
+
+    const warn = $('uriwarn');
+    if (location.protocol === 'file:') {
+      warn.textContent = 'Je opent dit bestand direct van je schijf. Spotify heeft een webadres nodig. Start een lokale server (zie de uitleg in de chat) en open dan het adres met 127.0.0.1.';
+      warn.classList.add('on');
+    } else if (location.hostname === 'localhost') {
+      warn.textContent = 'Spotify accepteert "localhost" niet meer als redirect. Open deze pagina via 127.0.0.1 in plaats van localhost.';
+      warn.classList.add('on');
+    }
+
+    await handleCallback();
+    if (await getToken()) { show('idle'); startPolling(); }
+    else show('setup');
+    requestAnimationFrame(tick);
+  }
+  init();
+})();
+</script>
+</body>
+</html>
