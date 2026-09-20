@@ -5,14 +5,22 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Spotify speler</title>
 <style>
+  @property --c1 { syntax: '<color>'; inherits: true; initial-value: #2b3350; }
+  @property --c2 { syntax: '<color>'; inherits: true; initial-value: #1b2a3d; }
+  @property --acc { syntax: '<color>'; inherits: true; initial-value: #e8d3a2; }
+
   :root {
-    --bg: #0c0d0f;
-    --text: #f4f5f7;
-    --muted: rgba(244, 245, 247, 0.62);
-    --track: rgba(255, 255, 255, 0.22);
+    --bg: #08090b;
+    --text: #f6f4f1;
+    --muted: rgba(246, 244, 241, 0.62);
+    --track: rgba(255, 255, 255, 0.2);
     --accent: #1ed760;
+    --c1: #2b3350;
+    --c2: #1b2a3d;
+    --acc: #e8d3a2;
     --font: "Avenir Next", "Segoe UI", system-ui, -apple-system, Roboto, "Helvetica Neue", sans-serif;
     box-sizing: border-box;
+    transition: --c1 1.4s ease, --c2 1.4s ease, --acc 1.4s ease;
   }
   *, *::before, *::after { box-sizing: inherit; }
   html, body { height: 100%; margin: 0; }
@@ -23,207 +31,388 @@
     overflow: hidden;
     -webkit-font-smoothing: antialiased;
   }
+  body.idle { cursor: none; }
   button { font: inherit; color: inherit; background: none; border: 0; cursor: pointer; padding: 0; }
   button:focus-visible, input:focus-visible { outline: 2px solid var(--text); outline-offset: 3px; border-radius: 8px; }
 
-  /* Achtergrond: uitvergrote, vervaagde cover */
-  #ambient {
-    position: fixed; inset: -10%;
+  /* ---------- Achtergrond ---------- */
+  #ambient { position: fixed; inset: 0; z-index: 0; overflow: hidden; background: var(--bg); }
+  #ambient .img {
+    position: absolute; inset: -12%;
     background-size: cover; background-position: center;
-    filter: blur(70px) saturate(1.5) brightness(0.55);
-    transition: background-image 0.6s ease;
-    z-index: 0;
+    filter: blur(90px) saturate(1.5) brightness(0.5);
+    opacity: 0.38;
   }
-  #shade { position: fixed; inset: 0; background: linear-gradient(to bottom, rgba(0,0,0,0.15), rgba(0,0,0,0.55)); z-index: 1; }
+  #ambient .blob { position: absolute; width: 90vmax; height: 90vmax; border-radius: 50%; opacity: 0.62; will-change: transform; }
+  #ambient .b1 { left: -30vmax; top: -40vmax; background: radial-gradient(circle, var(--c1) 0%, transparent 62%); animation: drift1 40s ease-in-out infinite alternate; }
+  #ambient .b2 { right: -35vmax; bottom: -45vmax; background: radial-gradient(circle, var(--c2) 0%, transparent 62%); animation: drift2 52s ease-in-out infinite alternate; }
+  @keyframes drift1 { to { transform: translate3d(18vmax, 10vmax, 0) scale(1.15); } }
+  @keyframes drift2 { to { transform: translate3d(-16vmax, -12vmax, 0) scale(1.1); } }
+  #shade {
+    position: fixed; inset: 0; z-index: 1; pointer-events: none;
+    background:
+      radial-gradient(ellipse at 50% 38%, transparent 30%, rgba(0,0,0,0.55) 100%),
+      linear-gradient(to bottom, rgba(0,0,0,0.08), rgba(0,0,0,0.42));
+  }
+  #grain {
+    position: fixed; inset: 0; z-index: 1; pointer-events: none; opacity: 0.07; mix-blend-mode: overlay;
+    background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)'/></svg>");
+  }
 
-  /* Spelerlayout */
+  /* ---------- Spelerlayout ---------- */
   #player {
     position: relative; z-index: 2;
     height: 100%;
     display: none;
     flex-direction: column;
     align-items: center;
-    padding: max(20px, env(safe-area-inset-top)) 24px max(28px, env(safe-area-inset-bottom));
+    padding: max(16px, env(safe-area-inset-top)) 24px max(24px, env(safe-area-inset-bottom));
   }
   #player.on { display: flex; }
 
-  .topbar { width: 100%; display: flex; justify-content: flex-end; gap: 6px; min-height: 40px; }
-  .iconbtn { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); transition: color .15s, background .15s; }
+  .topbar, .timeline, .controls, .vol { transition: opacity .6s ease; }
+  body.idle .topbar, body.idle .timeline, body.idle .controls, body.idle .vol { opacity: 0; pointer-events: none; }
+
+  .topbar { width: 100%; display: flex; align-items: center; gap: 4px; min-height: 40px; }
+  .device { flex: 1; min-width: 0; display: flex; align-items: center; gap: 8px; color: var(--muted); font-size: 14px; }
+  .device svg { width: 18px; height: 18px; flex: none; }
+  .device span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .iconbtn { width: 40px; height: 40px; display: grid; place-items: center; border-radius: 50%; color: var(--muted); transition: color .15s, background .15s; flex: none; }
   .iconbtn:hover { color: var(--text); background: rgba(255,255,255,0.1); }
   .iconbtn svg { width: 22px; height: 22px; }
 
-  .stage { flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; }
-  #cover {
+  .stage { flex: 1; min-height: 0; width: 100%; display: flex; align-items: center; justify-content: center; padding: 10px 0 4px; perspective: 1400px; }
+  .coverwrap {
     height: min(100%, 92vw);
     aspect-ratio: 1;
     max-width: 100%;
-    object-fit: cover;
-    border-radius: 14px;
+    position: relative;
+    border-radius: 16px;
+    overflow: hidden;
     background: rgba(255,255,255,0.06);
-    box-shadow: 0 30px 80px rgba(0,0,0,0.55), 0 8px 24px rgba(0,0,0,0.4);
-    transition: transform .35s ease, opacity .25s ease;
+    box-shadow: 0 30px 80px rgba(0,0,0,0.55);
+    box-shadow: 0 40px 120px -24px color-mix(in srgb, var(--c1) 90%, transparent), 0 24px 60px rgba(0,0,0,0.5);
+    transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) scale(var(--s, 1));
+    transition: transform .6s cubic-bezier(.2,.8,.2,1), opacity .5s ease, box-shadow 1.4s ease;
+    will-change: transform;
   }
-  #cover.paused { transform: scale(0.94); }
+  .stage.tilting .coverwrap { transition: transform .1s linear, opacity .5s ease, box-shadow 1.4s ease; }
+  .coverwrap.paused { --s: 0.93; }
+  .coverwrap.swap { opacity: 0; --s: 0.9; }
+  .coverwrap img { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .coverwrap img:not([src]) { visibility: hidden; }
+  .coverwrap::after {
+    content: ""; position: absolute; inset: 0; pointer-events: none; opacity: 0; transition: opacity .3s;
+    background: radial-gradient(circle at var(--mx, 50%) var(--my, 25%), rgba(255,255,255,0.22), transparent 55%);
+  }
+  .stage.tilting .coverwrap::after { opacity: 1; }
 
   .bottom { width: min(720px, 100%); }
-  .meta { text-align: left; margin: 26px 0 18px; min-width: 0; }
-  #title { font-size: clamp(22px, 3.6vw, 34px); font-weight: 700; line-height: 1.15; margin: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: -0.01em; }
-  #artist { font-size: clamp(16px, 2.2vw, 20px); color: var(--muted); margin: 6px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .meta { display: flex; align-items: flex-end; gap: 16px; margin: 24px 0 16px; }
+  .meta .txt { flex: 1; min-width: 0; }
+  #title { font-size: clamp(24px, 4vw, 38px); font-weight: 700; line-height: 1.14; margin: 0; letter-spacing: -0.02em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #title span { display: inline-block; }
+  #title.marq { text-overflow: clip; -webkit-mask-image: linear-gradient(to right, #000 90%, transparent); mask-image: linear-gradient(to right, #000 90%, transparent); }
+  #title.marq span { animation: marq var(--dur, 8s) ease-in-out 1.5s infinite alternate; }
+  @keyframes marq { to { transform: translateX(var(--shift, 0px)); } }
+  #artist { font-size: clamp(16px, 2.3vw, 21px); color: rgba(246,244,241,0.86); margin: 6px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #album { font-size: 14px; color: var(--muted); margin: 4px 0 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .rise { animation: rise .6s cubic-bezier(.2,.8,.2,1) both; }
+  #artist.rise { animation-delay: .06s; }
+  #album.rise { animation-delay: .12s; }
+  @keyframes rise { from { opacity: 0; transform: translateY(10px); } }
 
-  /* Tijdlijn */
+  .eq { display: flex; align-items: flex-end; gap: 3px; height: 22px; padding-bottom: 4px; flex: none; }
+  .eq i { width: 3px; height: 100%; background: var(--acc); border-radius: 2px; transform-origin: bottom; transform: scaleY(0.22); }
+  body.playing .eq i { animation: eq 1s ease-in-out infinite; }
+  .eq i:nth-child(2) { animation-delay: -.35s !important; }
+  .eq i:nth-child(3) { animation-delay: -.7s !important; }
+  .eq i:nth-child(4) { animation-delay: -.15s !important; }
+  @keyframes eq { 0%, 100% { transform: scaleY(0.22); } 50% { transform: scaleY(1); } }
+
+  /* Sliders (tijdlijn en volume) */
+  .rng { -webkit-appearance: none; appearance: none; width: 100%; height: 24px; background: transparent; margin: 0; cursor: pointer; --p: 0%; --th: 5px; }
+  .rng::-webkit-slider-runnable-track { height: var(--th); border-radius: 4px; background: linear-gradient(to right, var(--text) var(--p), var(--track) var(--p)); transition: height .12s; }
+  .rng:hover::-webkit-slider-runnable-track { height: calc(var(--th) + 3px); }
+  .rng::-moz-range-track { height: var(--th); border-radius: 4px; background: var(--track); }
+  .rng::-moz-range-progress { height: var(--th); border-radius: 4px; background: var(--text); }
+  .rng::-webkit-slider-thumb { -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%; background: var(--text); margin-top: calc((var(--th) - 14px) / 2); transform: scale(0); transition: transform .12s; }
+  .rng:hover::-webkit-slider-thumb { margin-top: calc((var(--th) + 3px - 14px) / 2); }
+  .rng::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: var(--text); transform: scale(0); transition: transform .12s; }
+  .rng:hover::-webkit-slider-thumb, .rng:active::-webkit-slider-thumb, .rng:focus-visible::-webkit-slider-thumb { transform: scale(1); }
+  .rng:hover::-moz-range-thumb, .rng:active::-moz-range-thumb, .rng:focus-visible::-moz-range-thumb { transform: scale(1); }
+
   .timeline { display: flex; align-items: center; gap: 14px; }
-  .timeline time { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 40px; }
+  .timeline time { font-size: 13px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 44px; }
   .timeline time:last-child { text-align: right; }
-  #seek {
-    -webkit-appearance: none; appearance: none;
-    flex: 1; height: 22px; background: transparent; margin: 0; cursor: pointer;
-    --p: 0%;
-  }
-  #seek::-webkit-slider-runnable-track {
-    height: 5px; border-radius: 3px;
-    background: linear-gradient(to right, var(--text) var(--p), var(--track) var(--p));
-  }
-  #seek::-moz-range-track { height: 5px; border-radius: 3px; background: var(--track); }
-  #seek::-moz-range-progress { height: 5px; border-radius: 3px; background: var(--text); }
-  #seek::-webkit-slider-thumb {
-    -webkit-appearance: none; width: 14px; height: 14px; border-radius: 50%;
-    background: var(--text); margin-top: -4.5px; transform: scale(0); transition: transform .12s;
-  }
-  #seek::-moz-range-thumb { width: 14px; height: 14px; border: 0; border-radius: 50%; background: var(--text); transform: scale(0); transition: transform .12s; }
-  #seek:hover::-webkit-slider-thumb, #seek:active::-webkit-slider-thumb, #seek:focus-visible::-webkit-slider-thumb { transform: scale(1); }
-  #seek:hover::-moz-range-thumb, #seek:active::-moz-range-thumb, #seek:focus-visible::-moz-range-thumb { transform: scale(1); }
+  .seekwrap { position: relative; flex: 1; display: flex; align-items: center; }
+  .tip { position: absolute; bottom: 26px; left: 0; transform: translateX(-50%); background: rgba(0,0,0,0.72); padding: 3px 8px; border-radius: 6px; font-size: 12px; font-variant-numeric: tabular-nums; opacity: 0; pointer-events: none; transition: opacity .12s; white-space: nowrap; }
+  .seekwrap:hover .tip { opacity: 1; }
 
   /* Knoppen */
-  .controls { display: flex; align-items: center; justify-content: space-between; margin-top: 10px; }
+  .controls { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
   .controls .side { width: 44px; height: 44px; display: grid; place-items: center; color: var(--muted); position: relative; border-radius: 50%; }
   .controls .side:hover { color: var(--text); }
-  .controls .side.active { color: var(--accent); }
-  .controls .side.active::after { content: ""; position: absolute; bottom: 3px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--accent); }
+  .controls .side.active { color: var(--acc); }
+  .controls .side.active::after { content: ""; position: absolute; bottom: 3px; left: 50%; width: 4px; height: 4px; margin-left: -2px; border-radius: 50%; background: var(--acc); }
   .controls svg { width: 26px; height: 26px; }
   .controls .skip { width: 56px; height: 56px; display: grid; place-items: center; border-radius: 50%; }
   .controls .skip svg { width: 34px; height: 34px; }
   .controls .skip:hover { background: rgba(255,255,255,0.1); }
-  #play { width: 76px; height: 76px; border-radius: 50%; background: var(--text); color: #0c0d0f; display: grid; place-items: center; transition: transform .12s; }
+  #play { width: 76px; height: 76px; border-radius: 50%; background: var(--text); color: #0c0d0f; display: grid; place-items: center; transition: transform .12s; box-shadow: 0 10px 30px -6px color-mix(in srgb, var(--c1) 90%, transparent); }
   #play:hover { transform: scale(1.06); }
   #play:active { transform: scale(0.97); }
   #play svg { width: 34px; height: 34px; }
   #repeat-one { position: absolute; font-size: 9px; font-weight: 700; right: 8px; top: 8px; display: none; }
   .side.one #repeat-one { display: block; }
 
-  /* Instellen / verbinden / leeg */
-  .panel {
-    position: relative; z-index: 2;
-    height: 100%; display: none; place-items: center; padding: 24px; overflow-y: auto;
+  .vol { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 10px; color: var(--muted); }
+  .vol .rng { width: min(240px, 50vw); --th: 4px; }
+  .vol button { width: 32px; height: 32px; display: grid; place-items: center; border-radius: 50%; color: inherit; }
+  .vol button:hover { color: var(--text); }
+  .vol svg { width: 20px; height: 20px; }
+  .vol.off { opacity: 0.4; pointer-events: none; }
+
+  /* Wachtrij */
+  #queue {
+    position: fixed; top: 0; right: 0; bottom: 0; width: min(400px, 100%); z-index: 6;
+    background: rgba(12,13,16,0.93); backdrop-filter: blur(30px) saturate(1.4); -webkit-backdrop-filter: blur(30px) saturate(1.4);
+    border-left: 1px solid rgba(255,255,255,0.1);
+    display: flex; flex-direction: column; padding-top: env(safe-area-inset-top);
+    transform: translateX(102%); visibility: hidden;
+    transition: transform .45s cubic-bezier(.2,.8,.2,1), visibility 0s .45s;
   }
+  #queue.open { transform: none; visibility: visible; transition: transform .45s cubic-bezier(.2,.8,.2,1); }
+  .qhead { display: flex; align-items: center; justify-content: space-between; padding: 16px 12px 8px 22px; }
+  .qhead h3 { margin: 0; font-size: 21px; letter-spacing: -0.01em; }
+  #qlist { flex: 1; overflow-y: auto; padding: 4px 12px 24px; margin: 0; list-style: none; }
+  .qitem { display: flex; align-items: center; gap: 12px; padding: 8px; border-radius: 10px; }
+  .qitem:hover { background: rgba(255,255,255,0.07); }
+  .qitem img { width: 48px; height: 48px; border-radius: 6px; object-fit: cover; background: rgba(255,255,255,0.08); flex: none; }
+  .qitem .t { min-width: 0; }
+  .qitem b { display: block; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .qitem span { display: block; color: var(--muted); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .qempty { color: var(--muted); padding: 20px 12px; margin: 0; }
+
+  /* Sneltoetsen */
+  #help { position: fixed; inset: 0; z-index: 7; display: none; place-items: center; padding: 24px; background: rgba(0,0,0,0.5); backdrop-filter: blur(6px); }
+  #help.on { display: grid; }
+  #help .card { width: min(440px, 100%); }
+  #help dl { display: grid; grid-template-columns: auto 1fr; gap: 10px 18px; margin: 16px 0 0; align-items: center; }
+  #help dt { justify-self: start; }
+  #help dd { margin: 0; color: var(--muted); }
+  kbd { background: rgba(255,255,255,0.12); border-radius: 6px; padding: 2px 8px; font: inherit; font-size: 13px; }
+
+  /* Dunne voortgangslijn als de bediening verdwijnt */
+  #mini { position: fixed; left: 0; right: 0; bottom: 0; height: 3px; z-index: 3; background: rgba(255,255,255,0.12); opacity: 0; transition: opacity .6s; pointer-events: none; }
+  #mini i { display: block; height: 100%; width: 0; background: var(--acc); }
+  body.idle #mini { opacity: 1; }
+
+  /* ---------- Instellen / verbinden / leeg ---------- */
+  .panel { position: relative; z-index: 2; height: 100%; display: none; place-items: center; padding: 24px; overflow-y: auto; }
   .panel.on { display: grid; }
   .card { width: min(520px, 100%); background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.12); border-radius: 18px; padding: 30px; backdrop-filter: blur(20px); }
   .card h1 { font-size: 26px; margin: 0 0 8px; letter-spacing: -0.01em; }
   .card p { color: var(--muted); line-height: 1.55; margin: 0 0 14px; }
-  .card ol { color: var(--muted); line-height: 1.6; padding-left: 20px; margin: 0 0 20px; }
-  .card li { margin-bottom: 6px; }
   .card a { color: var(--text); }
-  .card code, .uri { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; background: rgba(255,255,255,0.1); padding: 2px 7px; border-radius: 6px; color: var(--text); word-break: break-all; }
   .card input[type=text] { width: 100%; padding: 13px 14px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.2); background: rgba(0,0,0,0.3); color: var(--text); font: inherit; margin-bottom: 14px; }
+  .uri { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 13px; background: rgba(255,255,255,0.1); padding: 2px 7px; border-radius: 6px; color: var(--text); word-break: break-all; }
   .btn { display: inline-block; background: var(--accent); color: #05140a; font-weight: 700; padding: 13px 26px; border-radius: 999px; font-size: 16px; }
   .btn:hover { filter: brightness(1.08); }
-  .warn { background: rgba(255, 180, 60, 0.14); border: 1px solid rgba(255, 180, 60, 0.4); color: #ffd9a0; border-radius: 10px; padding: 10px 12px; font-size: 14px; line-height: 1.45; margin-bottom: 16px; display: none; }
+  .warn { background: rgba(255,180,60,0.14); border: 1px solid rgba(255,180,60,0.4); color: #ffd9a0; border-radius: 10px; padding: 10px 12px; font-size: 14px; line-height: 1.45; margin-bottom: 16px; display: none; }
   .warn.on { display: block; }
   .center { text-align: center; }
-  #toast { position: fixed; z-index: 5; left: 50%; bottom: 24px; transform: translateX(-50%); background: rgba(0,0,0,0.75); padding: 10px 16px; border-radius: 999px; font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: 90vw; text-align: center; }
+  #toast { position: fixed; z-index: 9; left: 50%; bottom: 24px; transform: translateX(-50%); background: rgba(0,0,0,0.78); padding: 10px 16px; border-radius: 999px; font-size: 14px; opacity: 0; pointer-events: none; transition: opacity .2s; max-width: 90vw; text-align: center; }
   #toast.on { opacity: 1; }
 
-  @media (max-height: 560px) {
-    .meta { margin: 14px 0 8px; }
+  .steps { padding-left: 20px; margin: 0 0 22px; color: var(--muted); }
+  .steps li { margin-bottom: 20px; padding-left: 4px; }
+  .steps li b { display: block; color: var(--text); font-size: 17px; margin-bottom: 8px; }
+  .steps li span { display: block; line-height: 1.5; margin: 8px 0; }
+  .steps li span.uri { display: inline-block; margin: 0; }
+  .steps input[type=text] { margin: 6px 0 0; }
+  .btn.small { padding: 9px 18px; font-size: 14px; text-decoration: none; }
+  .copyrow { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin: 8px 0; }
+  .copy { background: rgba(255,255,255,0.14); padding: 7px 14px; border-radius: 999px; font-size: 13px; color: var(--text); }
+  .copy:hover { background: rgba(255,255,255,0.22); }
+  .linkbtn { color: var(--muted); text-decoration: underline; font-size: 14px; }
+  .linkbtn:hover { color: var(--text); }
+
+  /* Liggende telefoon: cover links, info rechts */
+  @media (orientation: landscape) and (max-height: 540px) {
+    #player.on { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); grid-template-rows: auto minmax(0, 1fr); column-gap: 28px; }
+    .topbar { grid-column: 1 / -1; }
+    .stage { grid-row: 2; grid-column: 1; }
+    .bottom { grid-row: 2; grid-column: 2; align-self: center; }
+    .meta { margin: 0 0 10px; }
     #play { width: 60px; height: 60px; }
+    .vol { display: none; }
   }
+  @media (max-height: 560px) { .meta { margin: 12px 0 8px; } }
   @media (prefers-reduced-motion: reduce) {
-    * { transition: none !important; }
+    *, *::before, *::after { transition: none !important; animation: none !important; }
   }
 </style>
 </head>
 <body>
-<div id="ambient"></div>
+<div id="ambient"><div class="img" id="ambimg"></div><div class="blob b1"></div><div class="blob b2"></div></div>
 <div id="shade"></div>
+<div id="grain"></div>
 
 <!-- Eerste keer instellen -->
 <section id="setup" class="panel">
   <div class="card">
     <h1>Spotify koppelen</h1>
-    <p>Je hebt eenmalig een eigen Spotify-app nodig. Dat kost twee minuten en is gratis.</p>
-    <ol>
-      <li>Ga naar <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">developer.spotify.com/dashboard</a> en maak een app.</li>
-      <li>Voeg bij Redirect URIs precies dit adres toe: <span class="uri" id="uri"></span></li>
-      <li>Vink Web API aan, sla op en plak hieronder je Client ID.</li>
-    </ol>
+    <p>Eenmalig instellen. Daarna is verbinden één klik.</p>
     <div class="warn" id="uriwarn"></div>
-    <input type="text" id="cid" placeholder="Client ID" autocomplete="off" spellcheck="false">
+    <ol class="steps">
+      <li>
+        <b>Maak een Spotify-app</b>
+        <a class="btn small" href="https://developer.spotify.com/dashboard/create" target="_blank" rel="noopener">Open Spotify dashboard</a>
+        <span>Naam en omschrijving mag alles zijn. Plak bij Redirect URI dit adres:</span>
+        <div class="copyrow"><span class="uri" id="uri"></span><button class="copy" id="copyuri">Kopieer</button></div>
+        <span>Vink bij "Which API/SDKs are you planning to use" <b style="display:inline;font-size:inherit">Web API</b> aan en klik op Save.</span>
+      </li>
+      <li>
+        <b>Plak je Client ID</b>
+        <span>Je vindt hem in je nieuwe app onder Settings.</span>
+        <input type="text" id="cid" placeholder="Client ID (32 tekens)" autocomplete="off" spellcheck="false">
+      </li>
+    </ol>
     <button class="btn" id="connect">Verbinden met Spotify</button>
+  </div>
+</section>
+
+<!-- Client ID bekend, alleen nog inloggen -->
+<section id="login" class="panel">
+  <div class="card center">
+    <h1>Verbind met Spotify</h1>
+    <p>Eén klik en je bent klaar. Je blijft ingelogd op dit apparaat.</p>
+    <button class="btn" id="login-btn">Verbinden met Spotify</button>
+    <p style="margin:18px 0 0"><button class="linkbtn" id="other">Andere Client ID gebruiken</button></p>
   </div>
 </section>
 
 <!-- Verbonden, maar niks aan het afspelen -->
 <section id="idle" class="panel">
   <div class="card center">
-    <h1>Er speelt niks</h1>
-    <p>Open Spotify op je telefoon of computer en start een nummer. Het verschijnt hier vanzelf.</p>
+    <h1 id="idle-title">Er speelt niks</h1>
+    <p id="idle-text">Open Spotify op je telefoon of computer en start een nummer. Het verschijnt hier vanzelf.</p>
   </div>
 </section>
 
 <!-- Speler -->
 <main id="player">
   <div class="topbar">
-    <button class="iconbtn" id="fs" title="Volledig scherm" aria-label="Volledig scherm">
+    <div class="device" id="device" title="Apparaat waarop Spotify speelt">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="2" width="14" height="20" rx="2"/><circle cx="12" cy="15" r="3"/><path d="M12 6h.01"/></svg>
+      <span id="devname"></span>
+    </div>
+    <button class="iconbtn" id="qbtn" title="Wachtrij (q)" aria-label="Wachtrij">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12M4 12h12M4 18h7"/><path d="M17 14l5 3-5 3z" fill="currentColor"/></svg>
+    </button>
+    <button class="iconbtn" id="fs" title="Volledig scherm (f)" aria-label="Volledig scherm">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+    </button>
+    <button class="iconbtn" id="helpbtn" title="Sneltoetsen (?)" aria-label="Sneltoetsen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 1 1 3.5 2.3c-.7.4-1 1-1 1.7M12 17h.01"/></svg>
     </button>
     <button class="iconbtn" id="logout" title="Ontkoppelen" aria-label="Ontkoppelen">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg>
     </button>
   </div>
 
-  <div class="stage"><img id="cover" alt="Albumcover"></div>
+  <div class="stage" id="stage">
+    <div class="coverwrap paused" id="coverwrap"><img id="cover" alt="Albumcover"></div>
+  </div>
 
   <div class="bottom">
     <div class="meta">
-      <h2 id="title">&nbsp;</h2>
-      <p id="artist">&nbsp;</p>
+      <div class="txt">
+        <h2 id="title"><span>&nbsp;</span></h2>
+        <p id="artist"></p>
+        <p id="album"></p>
+      </div>
+      <span class="eq" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
     </div>
 
     <div class="timeline">
       <time id="tcur">0:00</time>
-      <input type="range" id="seek" min="0" max="1000" value="0" step="1" aria-label="Positie in nummer">
+      <div class="seekwrap" id="seekwrap">
+        <span class="tip" id="tip">0:00</span>
+        <input type="range" class="rng" id="seek" min="0" max="1000" value="0" step="1" aria-label="Positie in nummer">
+      </div>
       <time id="tdur">0:00</time>
     </div>
 
     <div class="controls">
-      <button class="side" id="shuffle" title="Shuffle" aria-label="Shuffle">
+      <button class="side" id="shuffle" title="Shuffle (s)" aria-label="Shuffle">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>
       </button>
-      <button class="skip" id="prev" title="Vorige" aria-label="Vorige">
+      <button class="skip" id="prev" title="Vorige (Shift + pijl links)" aria-label="Vorige">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M6 5h2v14H6zM20 5v14L9.5 12z"/></svg>
       </button>
-      <button id="play" title="Afspelen of pauzeren" aria-label="Afspelen of pauzeren">
+      <button id="play" title="Afspelen of pauzeren (spatie)" aria-label="Afspelen of pauzeren">
         <svg id="ico-play" viewBox="0 0 24 24" fill="currentColor"><path d="M7 4.5v15a1 1 0 0 0 1.5.86l12-7.5a1 1 0 0 0 0-1.72l-12-7.5A1 1 0 0 0 7 4.5z"/></svg>
         <svg id="ico-pause" viewBox="0 0 24 24" fill="currentColor" style="display:none"><path d="M6 4h4v16H6zM14 4h4v16h-4z"/></svg>
       </button>
-      <button class="skip" id="next" title="Volgende" aria-label="Volgende">
+      <button class="skip" id="next" title="Volgende (Shift + pijl rechts)" aria-label="Volgende">
         <svg viewBox="0 0 24 24" fill="currentColor"><path d="M16 5h2v14h-2zM4 5v14l10.5-7z"/></svg>
       </button>
-      <button class="side" id="repeat" title="Herhalen" aria-label="Herhalen">
+      <button class="side" id="repeat" title="Herhalen (r)" aria-label="Herhalen">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m17 2 4 4-4 4M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4M21 13v2a3 3 0 0 1-3 3H3"/></svg>
         <span id="repeat-one">1</span>
       </button>
     </div>
+
+    <div class="vol" id="vol">
+      <button id="mute" title="Dempen (m)" aria-label="Dempen">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor"/><path d="M15.5 9a4 4 0 0 1 0 6"/></svg>
+      </button>
+      <input type="range" class="rng" id="volume" min="0" max="100" value="50" step="1" aria-label="Volume">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4z" fill="currentColor"/><path d="M15.5 8.5a5 5 0 0 1 0 7M18.5 5.5a9 9 0 0 1 0 13"/></svg>
+    </div>
   </div>
 </main>
 
+<aside id="queue" aria-hidden="true" aria-label="Wachtrij">
+  <div class="qhead">
+    <h3>Hierna</h3>
+    <button class="iconbtn" id="qclose" aria-label="Sluiten">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+    </button>
+  </div>
+  <ul id="qlist"></ul>
+</aside>
+
+<div id="help">
+  <div class="card">
+    <h1>Sneltoetsen</h1>
+    <dl>
+      <dt><kbd>Spatie</kbd></dt><dd>Afspelen of pauzeren</dd>
+      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>10 seconden terug of vooruit</dd>
+      <dt><kbd>Shift</kbd> + <kbd>←</kbd> <kbd>→</kbd></dt><dd>Vorige of volgende nummer</dd>
+      <dt><kbd>↑</kbd> <kbd>↓</kbd></dt><dd>Volume harder of zachter</dd>
+      <dt><kbd>m</kbd></dt><dd>Dempen</dd>
+      <dt><kbd>s</kbd> <kbd>r</kbd></dt><dd>Shuffle en herhalen</dd>
+      <dt><kbd>q</kbd></dt><dd>Wachtrij tonen</dd>
+      <dt><kbd>f</kbd></dt><dd>Volledig scherm, of dubbelklik op de cover</dd>
+    </dl>
+  </div>
+</div>
+
+<div id="mini"><i></i></div>
 <div id="toast"></div>
 
 <script>
 (() => {
   const $ = id => document.getElementById(id);
+  // Optioneel: zet hier je Client ID tussen de aanhalingstekens, dan hoef je hem nooit meer in te vullen.
+  const CLIENT_ID = '';
   const K = { cid: 'sp_client_id', ver: 'sp_verifier', at: 'sp_access', rt: 'sp_refresh', exp: 'sp_expires' };
   const SCOPES = 'user-read-playback-state user-modify-playback-state user-read-currently-playing';
   const redirectUri = location.origin + location.pathname;
+  const reduceMotion = matchMedia('(prefers-reduced-motion: reduce)').matches;
 
   const store = {
     get: k => { try { return localStorage.getItem(k); } catch (e) { return null; } },
@@ -234,15 +423,18 @@
   // ---------- Helpers ----------
   const fmt = ms => {
     const s = Math.max(0, Math.floor(ms / 1000));
-    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+    const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+    return h ? `${h}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}` : `${m}:${String(sec).padStart(2, '0')}`;
   };
+  const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; };
   let toastTimer;
   function toast(msg) {
     const t = $('toast'); t.textContent = msg; t.classList.add('on');
-    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), 3200);
+    clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove('on'), 3400);
   }
   function show(which) {
-    ['setup', 'idle', 'player'].forEach(id => $(id).classList.toggle('on', id === which));
+    ['setup', 'login', 'idle', 'player'].forEach(id => $(id).classList.toggle('on', id === which));
+    if (which !== 'player') { document.body.classList.remove('idle', 'playing'); }
   }
   const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   function randomString(n) {
@@ -252,10 +444,10 @@
   }
 
   // ---------- Inloggen (PKCE, geen geheime sleutel nodig) ----------
+  const getCid = () => CLIENT_ID || store.get(K.cid) || '';
   async function login() {
-    const cid = $('cid').value.trim();
-    if (!cid) { toast('Vul eerst je Client ID in'); return; }
-    store.set(K.cid, cid);
+    const cid = getCid();
+    if (!cid) { show('setup'); return; }
     const verifier = randomString(96);
     store.set(K.ver, verifier);
     const challenge = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(verifier)));
@@ -287,7 +479,7 @@
     history.replaceState({}, '', location.pathname);
     try {
       await tokenRequest({
-        client_id: store.get(K.cid), grant_type: 'authorization_code', code,
+        client_id: getCid(), grant_type: 'authorization_code', code,
         redirect_uri: redirectUri, code_verifier: store.get(K.ver)
       });
     } catch (e) { toast('Koppelen mislukt, probeer opnieuw'); }
@@ -299,135 +491,408 @@
     const rt = store.get(K.rt);
     if (!rt) return null;
     try {
-      await tokenRequest({ client_id: store.get(K.cid), grant_type: 'refresh_token', refresh_token: rt });
+      await tokenRequest({ client_id: getCid(), grant_type: 'refresh_token', refresh_token: rt });
       return store.get(K.at);
     } catch (e) { logout(); return null; }
   }
 
   function logout() {
     [K.at, K.rt, K.exp, K.ver].forEach(store.del);
-    stopPolling(); show('setup');
+    stopPolling(); toggleQueue(false); show(getCid() ? 'login' : 'setup'); syncWake();
   }
 
   // ---------- Spotify API ----------
+  let pausedUntil = 0;
   async function api(path, method = 'GET') {
     const token = await getToken();
     if (!token) return { status: 401 };
     const r = await fetch('https://api.spotify.com/v1' + path, { method, headers: { Authorization: 'Bearer ' + token } });
     if (r.status === 204) return { status: 204 };
-    if (r.status === 429) return { status: 429 };
+    if (r.status === 429) {
+      const wait = Number(r.headers.get('Retry-After')) || 5;
+      pausedUntil = Date.now() + wait * 1000;
+      return { status: 429 };
+    }
     let data = null;
     try { data = await r.json(); } catch (e) {}
     return { status: r.status, data };
   }
 
+  // ---------- Kleuren uit de cover ----------
+  function rgb2hsl(r, g, b) {
+    r /= 255; g /= 255; b /= 255;
+    const mx = Math.max(r, g, b), mn = Math.min(r, g, b), d = mx - mn;
+    const l = (mx + mn) / 2; let h = 0, s = 0;
+    if (d) {
+      s = l > 0.5 ? d / (2 - mx - mn) : d / (mx + mn);
+      h = mx === r ? (g - b) / d + (g < b ? 6 : 0) : mx === g ? (b - r) / d + 2 : (r - g) / d + 4;
+      h /= 6;
+    }
+    return [h, s, l];
+  }
+  const css = c => `hsl(${Math.round(c.h * 360)}, ${Math.round(c.s * 100)}%, ${Math.round(c.l * 100)}%)`;
+  function paletteFrom(img) {
+    const N = 40, c = document.createElement('canvas'); c.width = c.height = N;
+    const x = c.getContext('2d', { willReadFrequently: true });
+    x.drawImage(img, 0, 0, N, N);
+    const d = x.getImageData(0, 0, N, N).data; // gooit een fout als de afbeelding niet leesbaar is
+    const B = 12, bk = Array.from({ length: B }, () => ({ w: 0, h: 0, s: 0, l: 0 }));
+    for (let i = 0; i < d.length; i += 4) {
+      const [h, s, l] = rgb2hsl(d[i], d[i + 1], d[i + 2]);
+      if (l < 0.1 || l > 0.93) continue;
+      const w = (0.12 + s) * (1 - Math.abs(l - 0.5) * 1.2);
+      const b = bk[Math.min(B - 1, Math.floor(h * B))];
+      b.w += w; b.h += h * w; b.s += s * w; b.l += l * w;
+    }
+    const ranked = bk.map((b, i) => ({ ...b, i })).filter(b => b.w > 0).sort((a, b) => b.w - a.w);
+    if (!ranked.length) return null;
+    const top = ranked[0];
+    const prim = { h: top.h / top.w, s: top.s / top.w, l: top.l / top.w };
+    const sec = ranked.find(b => {
+      const dist = Math.min(Math.abs(b.i - top.i), B - Math.abs(b.i - top.i));
+      return dist >= 2 && b.w > top.w * 0.25;
+    });
+    const alt = sec ? { h: sec.h / sec.w, s: sec.s / sec.w, l: sec.l / sec.w } : { h: (prim.h + 0.07) % 1, s: prim.s, l: prim.l };
+    const fix = (c, lo, hi) => ({ h: c.h, s: c.s < 0.15 ? c.s : Math.min(0.85, Math.max(0.4, c.s)), l: Math.min(hi, Math.max(lo, c.l)) });
+    const p1 = fix(prim, 0.3, 0.5), p2 = fix(alt, 0.2, 0.4);
+    return { c1: css(p1), c2: css(p2), acc: css({ h: p1.h, s: p1.s < 0.15 ? p1.s : 0.75, l: 0.74 }) };
+  }
+  function applyColors(img) {
+    let out = null;
+    try { out = paletteFrom(img); } catch (e) {}
+    if (!out) return;
+    const root = document.documentElement.style;
+    root.setProperty('--c1', out.c1); root.setProperty('--c2', out.c2); root.setProperty('--acc', out.acc);
+  }
+
+  // ---------- Cover en titel ----------
+  const cover = $('cover'), cw = $('coverwrap');
+  let coverToken = 0;
+  function setCover(url) {
+    const my = ++coverToken;
+    if (!url) { cover.removeAttribute('src'); $('ambimg').style.backgroundImage = 'none'; return; }
+    cw.classList.add('swap');
+    const load = cors => {
+      const im = new Image();
+      if (cors) im.crossOrigin = 'anonymous';
+      im.onload = () => {
+        if (my !== coverToken) return;
+        cover.src = url;
+        $('ambimg').style.backgroundImage = `url("${url}")`;
+        requestAnimationFrame(() => cw.classList.remove('swap'));
+        if (cors) applyColors(im);
+      };
+      im.onerror = () => {
+        if (cors) load(false);
+        else if (my === coverToken) cw.classList.remove('swap');
+      };
+      im.src = url;
+    };
+    load(true);
+  }
+
+  function setTitle(t) {
+    S.title = t;
+    const h = $('title'), sp = h.firstElementChild;
+    sp.textContent = t;
+    h.classList.remove('marq');
+    requestAnimationFrame(() => {
+      const over = sp.offsetWidth - h.clientWidth;
+      if (over > 4 && !reduceMotion) {
+        h.style.setProperty('--shift', -(over + 10) + 'px');
+        h.style.setProperty('--dur', Math.max(6, over / 24) + 's');
+        h.classList.add('marq');
+      }
+    });
+  }
+  const retrigger = n => { n.classList.remove('rise'); void n.offsetWidth; n.classList.add('rise'); };
+
   // ---------- Toestand ----------
-  const S = { id: null, playing: false, progress: 0, duration: 0, at: 0, shuffle: false, repeat: 'off' };
-  let dragging = false;
+  const S = { id: null, title: '', playing: false, progress: 0, duration: 0, at: 0, shuffle: false, repeat: 'off', vol: 50, endPolled: false };
+  let dragging = false, volLock = 0, warned403 = false, busy = false;
+  const seek = $('seek'), tcur = $('tcur'), miniBar = document.querySelector('#mini i');
+
+  function onTrack(it, tid) {
+    S.id = tid;
+    const imgs = (it.album && it.album.images) || it.images || [];
+    setCover(imgs.length ? imgs[0].url : '');
+    const artist = it.artists ? it.artists.map(a => a.name).join(', ') : (it.show ? it.show.publisher : '');
+    const album = it.album ? it.album.name : (it.show ? it.show.name : '');
+    setTitle(it.name);
+    $('artist').textContent = artist;
+    $('album').textContent = album;
+    ['title', 'artist', 'album'].forEach(id => retrigger($(id)));
+    document.title = it.name + (artist ? ' – ' + artist : '');
+    if ($('queue').classList.contains('open')) loadQueue();
+  }
+
+  function setIdleCard(denied) {
+    $('idle-title').textContent = denied ? 'Geen toegang' : 'Er speelt niks';
+    $('idle-text').textContent = denied
+      ? 'Dit Spotify-account staat niet op de lijst van de app. Vraag de eigenaar om je e-mailadres toe te voegen.'
+      : 'Open Spotify op je telefoon of computer en start een nummer. Het verschijnt hier vanzelf.';
+  }
 
   async function poll() {
-    const res = await api('/me/player?additional_types=episode');
-    if (res.status === 401) return;
-    if (res.status === 204 || !res.data || !res.data.item) { show('idle'); return; }
-    const d = res.data, it = d.item;
-    show('player');
-    S.playing = d.is_playing;
-    S.progress = d.progress_ms || 0;
-    S.duration = it.duration_ms || 0;
-    S.at = performance.now();
-    S.shuffle = d.shuffle_state;
-    S.repeat = d.repeat_state;
+    if (busy || document.hidden || Date.now() < pausedUntil) return;
+    busy = true;
+    try {
+      const res = await api('/me/player?additional_types=episode');
+      if (res.status === 401 || res.status === 429) return;
+      if (res.status === 403) {
+        if (!warned403) { warned403 = true; toast('Geen toegang: dit Spotify-account staat niet op de lijst van de app'); }
+        S.playing = false; setIdleCard(true); show('idle'); syncWake(); return;
+      }
+      setIdleCard(false);
+      if (res.status === 204 || !res.data || !res.data.item) {
+        S.playing = false; show('idle'); document.title = 'Spotify speler'; syncWake(); return;
+      }
+      const d = res.data, it = d.item;
+      show('player');
+      S.playing = d.is_playing;
+      S.progress = d.progress_ms || 0;
+      S.duration = it.duration_ms || 0;
+      S.at = performance.now();
+      S.endPolled = false;
+      S.shuffle = d.shuffle_state;
+      S.repeat = d.repeat_state;
 
-    if (S.id !== it.id) {
-      S.id = it.id;
-      const imgs = (it.album && it.album.images) || it.images || [];
-      const url = imgs.length ? imgs[0].url : '';
-      $('cover').src = url;
-      $('ambient').style.backgroundImage = url ? `url("${url}")` : 'none';
-      $('title').textContent = it.name;
-      $('artist').textContent = it.artists ? it.artists.map(a => a.name).join(', ') : (it.show ? it.show.name : '');
-      document.title = it.name + ' – Spotify speler';
-    }
-    renderControls();
+      if (d.device) {
+        $('devname').textContent = d.device.name || '';
+        $('vol').classList.toggle('off', d.device.supports_volume === false);
+        if (Date.now() > volLock && d.device.volume_percent != null) setVolUI(d.device.volume_percent);
+      }
+      const tid = it.id || it.uri || it.name;
+      if (S.id !== tid) onTrack(it, tid);
+      renderControls();
+    } finally { busy = false; }
   }
 
   function renderControls() {
     $('ico-play').style.display = S.playing ? 'none' : '';
     $('ico-pause').style.display = S.playing ? '' : 'none';
-    $('cover').classList.toggle('paused', !S.playing);
+    cw.classList.toggle('paused', !S.playing);
+    document.body.classList.toggle('playing', S.playing);
     $('shuffle').classList.toggle('active', S.shuffle);
     $('repeat').classList.toggle('active', S.repeat !== 'off');
     $('repeat').classList.toggle('one', S.repeat === 'track');
     $('tdur').textContent = fmt(S.duration);
+    syncWake();
   }
+
+  const currentPos = () => Math.min(S.duration, S.progress + (S.playing ? performance.now() - S.at : 0));
 
   // Tijdlijn soepel laten lopen tussen twee polls in
   function tick() {
-    if (!dragging && S.duration) {
-      const pos = Math.min(S.duration, S.progress + (S.playing ? performance.now() - S.at : 0));
-      const frac = pos / S.duration;
-      $('seek').value = Math.round(frac * 1000);
-      $('seek').style.setProperty('--p', (frac * 100) + '%');
-      $('tcur').textContent = fmt(pos);
+    if (S.duration) {
+      const pos = currentPos(), frac = pos / S.duration;
+      if (!dragging) {
+        seek.value = Math.round(frac * 1000);
+        seek.style.setProperty('--p', (frac * 100) + '%');
+        tcur.textContent = fmt(pos);
+      }
+      miniBar.style.width = (frac * 100) + '%';
+      if (S.playing && pos >= S.duration && !S.endPolled) { S.endPolled = true; setTimeout(poll, 700); }
     }
     requestAnimationFrame(tick);
   }
 
   let pollTimer;
-  function startPolling() { stopPolling(); poll(); pollTimer = setInterval(poll, 2000); }
+  function startPolling() { stopPolling(); poll(); pollTimer = setInterval(poll, 2500); }
   function stopPolling() { clearInterval(pollTimer); }
-  const soon = () => setTimeout(poll, 350);
+  const soon = () => setTimeout(poll, 400);
+
+  // ---------- Scherm aan houden ----------
+  let wl = null;
+  async function syncWake() {
+    try {
+      const on = S.playing && $('player').classList.contains('on') && !document.hidden;
+      if (on && !wl && navigator.wakeLock) {
+        wl = await navigator.wakeLock.request('screen');
+        wl.addEventListener('release', () => { wl = null; });
+      } else if (!on && wl) { await wl.release(); wl = null; }
+    } catch (e) {}
+  }
 
   // ---------- Bediening ----------
-  async function control(path, method) {
+  async function control(path, method, msg403) {
     const res = await api(path, method);
-    if (res.status === 403) toast('Bediening werkt alleen met Spotify Premium');
+    if (res.status === 403) toast(msg403 || 'Bediening werkt alleen met Spotify Premium');
     else if (res.status === 404) toast('Geen actief apparaat gevonden');
     else if (res.status === 429) toast('Even rustig, Spotify vraagt om een pauze');
     soon();
   }
 
-  $('play').onclick = () => {
-    S.progress = S.progress + (S.playing ? performance.now() - S.at : 0); S.at = performance.now();
+  function togglePlay() {
+    S.progress = currentPos(); S.at = performance.now();
     S.playing = !S.playing; renderControls();
     control(S.playing ? '/me/player/play' : '/me/player/pause', 'PUT');
-  };
-  $('next').onclick = () => control('/me/player/next', 'POST');
-  $('prev').onclick = () => control('/me/player/previous', 'POST');
-  $('shuffle').onclick = () => { S.shuffle = !S.shuffle; renderControls(); control('/me/player/shuffle?state=' + S.shuffle, 'PUT'); };
-  $('repeat').onclick = () => {
+  }
+  function seekTo(ms) {
+    if (!S.duration) return;
+    ms = Math.max(0, Math.min(S.duration - 500, ms));
+    S.progress = ms; S.at = performance.now();
+    control('/me/player/seek?position_ms=' + Math.round(ms), 'PUT');
+  }
+  function toggleShuffle() { S.shuffle = !S.shuffle; renderControls(); control('/me/player/shuffle?state=' + S.shuffle, 'PUT'); }
+  function cycleRepeat() {
     S.repeat = S.repeat === 'off' ? 'context' : S.repeat === 'context' ? 'track' : 'off';
     renderControls(); control('/me/player/repeat?state=' + S.repeat, 'PUT');
-  };
+  }
 
-  const seek = $('seek');
+  $('play').onclick = togglePlay;
+  $('next').onclick = () => control('/me/player/next', 'POST');
+  $('prev').onclick = () => control('/me/player/previous', 'POST');
+  $('shuffle').onclick = toggleShuffle;
+  $('repeat').onclick = cycleRepeat;
+
+  // Tijdlijn slepen en tooltip
   seek.addEventListener('input', () => {
     dragging = true;
     const frac = seek.value / 1000;
     seek.style.setProperty('--p', (frac * 100) + '%');
-    $('tcur').textContent = fmt(frac * S.duration);
+    tcur.textContent = fmt(frac * S.duration);
   });
   seek.addEventListener('change', () => {
-    const ms = Math.round((seek.value / 1000) * S.duration);
-    S.progress = ms; S.at = performance.now();
     dragging = false;
-    control('/me/player/seek?position_ms=' + ms, 'PUT');
+    seekTo((seek.value / 1000) * S.duration);
+  });
+  $('seekwrap').addEventListener('mousemove', e => {
+    const r = seek.getBoundingClientRect();
+    const x = Math.max(0, Math.min(r.width, e.clientX - r.left));
+    $('tip').style.left = x + 'px';
+    $('tip').textContent = fmt((x / r.width) * S.duration);
   });
 
-  $('fs').onclick = () => {
+  // Volume
+  const volEl = $('volume');
+  let volTimer, lastVol = 40;
+  function setVolUI(v) { volEl.value = v; volEl.style.setProperty('--p', v + '%'); S.vol = v; }
+  function sendVol(v) {
+    volLock = Date.now() + 2500;
+    clearTimeout(volTimer);
+    volTimer = setTimeout(() => control('/me/player/volume?volume_percent=' + Math.round(v), 'PUT', 'Dit apparaat laat geen volumebediening toe'), 120);
+  }
+  function changeVol(v) { v = Math.max(0, Math.min(100, v)); setVolUI(v); sendVol(v); }
+  volEl.addEventListener('input', () => changeVol(+volEl.value));
+  function toggleMute() { if (S.vol > 0) { lastVol = S.vol; changeVol(0); } else changeVol(lastVol || 40); }
+  $('mute').onclick = toggleMute;
+  setVolUI(50);
+
+  // ---------- Wachtrij ----------
+  const queueEl = $('queue');
+  function toggleQueue(force) {
+    const open = force !== undefined ? force : !queueEl.classList.contains('open');
+    queueEl.classList.toggle('open', open);
+    queueEl.setAttribute('aria-hidden', String(!open));
+    if (open) loadQueue();
+    wake();
+  }
+  async function loadQueue() {
+    const list = $('qlist');
+    const res = await api('/me/player/queue');
+    if (!queueEl.classList.contains('open')) return;
+    list.replaceChildren();
+    if (res.status !== 200 || !res.data) { list.appendChild(el('p', 'qempty', 'De wachtrij is nu niet beschikbaar.')); return; }
+    const items = (res.data.queue || []).slice(0, 20);
+    if (!items.length) { list.appendChild(el('p', 'qempty', 'De wachtrij is leeg.')); return; }
+    items.forEach(t => {
+      const li = el('li', 'qitem');
+      const imgs = (t.album && t.album.images) || t.images || [];
+      const im = el('img'); im.alt = '';
+      if (imgs.length) im.src = imgs[imgs.length - 1].url;
+      const box = el('div', 't');
+      box.appendChild(el('b', '', t.name));
+      box.appendChild(el('span', '', t.artists ? t.artists.map(a => a.name).join(', ') : (t.show ? t.show.name : '')));
+      li.append(im, box);
+      list.appendChild(li);
+    });
+  }
+  $('qbtn').onclick = () => toggleQueue();
+  $('qclose').onclick = () => toggleQueue(false);
+
+  // ---------- Volledig scherm, tilt en rust ----------
+  function toggleFs() {
     if (document.fullscreenElement) document.exitFullscreen();
-    else document.documentElement.requestFullscreen && document.documentElement.requestFullscreen();
-  };
+    else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen();
+  }
+  $('fs').onclick = toggleFs;
+  cw.addEventListener('dblclick', toggleFs);
   $('logout').onclick = logout;
-  $('connect').onclick = login;
+  $('helpbtn').onclick = () => $('help').classList.toggle('on');
+  $('help').addEventListener('click', e => { if (e.target === $('help')) $('help').classList.remove('on'); });
 
+  const stage = $('stage');
+  if (!reduceMotion && matchMedia('(hover: hover)').matches) {
+    const clamp = v => Math.max(-1, Math.min(1, v));
+    stage.addEventListener('mousemove', e => {
+      const r = cw.getBoundingClientRect();
+      const dx = (e.clientX - (r.left + r.width / 2)) / (window.innerWidth / 2);
+      const dy = (e.clientY - (r.top + r.height / 2)) / (window.innerHeight / 2);
+      cw.style.setProperty('--ry', (clamp(dx) * 5).toFixed(2) + 'deg');
+      cw.style.setProperty('--rx', (-clamp(dy) * 5).toFixed(2) + 'deg');
+      cw.style.setProperty('--mx', ((e.clientX - r.left) / r.width * 100) + '%');
+      cw.style.setProperty('--my', ((e.clientY - r.top) / r.height * 100) + '%');
+      stage.classList.add('tilting');
+    });
+    stage.addEventListener('mouseleave', () => {
+      stage.classList.remove('tilting');
+      cw.style.setProperty('--rx', '0deg'); cw.style.setProperty('--ry', '0deg');
+    });
+  }
+
+  // Bediening verbergen na 5 seconden rust in volledig scherm
+  let idleT;
+  function wake() {
+    document.body.classList.remove('idle');
+    clearTimeout(idleT);
+    if (document.fullscreenElement && $('player').classList.contains('on') && !queueEl.classList.contains('open') && !$('help').classList.contains('on')) {
+      idleT = setTimeout(() => document.body.classList.add('idle'), 5000);
+    }
+  }
+  ['mousemove', 'pointerdown', 'keydown', 'touchstart'].forEach(ev => addEventListener(ev, wake, { passive: true }));
+  document.addEventListener('fullscreenchange', wake);
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { poll(); } syncWake(); });
+  let rz; addEventListener('resize', () => { clearTimeout(rz); rz = setTimeout(() => S.title && setTitle(S.title), 200); });
+
+  // ---------- Toetsenbord ----------
   document.addEventListener('keydown', e => {
+    if (e.target.tagName === 'INPUT' && e.target.type === 'text') return;
+    if (e.key === 'Escape') { toggleQueue(false); $('help').classList.remove('on'); return; }
     if (!$('player').classList.contains('on')) return;
-    if (e.code === 'Space' && e.target.tagName !== 'BUTTON') { e.preventDefault(); $('play').click(); }
-    else if (e.code === 'ArrowRight' && e.shiftKey) $('next').click();
-    else if (e.code === 'ArrowLeft' && e.shiftKey) $('prev').click();
-    else if (e.key === 'f') $('fs').click();
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const inRange = e.target.tagName === 'INPUT' && e.target.type === 'range';
+    const onBtn = e.target.tagName === 'BUTTON';
+    const k = e.key.toLowerCase();
+    if (e.code === 'Space') { if (!onBtn) { e.preventDefault(); togglePlay(); } }
+    else if (e.key === 'ArrowRight') { if (e.shiftKey) $('next').click(); else if (!inRange) seekTo(currentPos() + 10000); }
+    else if (e.key === 'ArrowLeft') { if (e.shiftKey) $('prev').click(); else if (!inRange) seekTo(currentPos() - 10000); }
+    else if (e.key === 'ArrowUp') { if (!inRange) { e.preventDefault(); changeVol(S.vol + 5); } }
+    else if (e.key === 'ArrowDown') { if (!inRange) { e.preventDefault(); changeVol(S.vol - 5); } }
+    else if (k === 'm') toggleMute();
+    else if (k === 's') toggleShuffle();
+    else if (k === 'r') cycleRepeat();
+    else if (k === 'q') toggleQueue();
+    else if (k === 'f') toggleFs();
+    else if (e.key === '?') $('help').classList.toggle('on');
   });
+
+  // ---------- Instellen ----------
+  $('connect').onclick = () => {
+    const v = $('cid').value.trim();
+    if (!/^[a-f0-9]{32}$/i.test(v)) { toast('Dat is geen geldig Client ID (32 letters en cijfers)'); return; }
+    store.set(K.cid, v); login();
+  };
+  $('login-btn').onclick = login;
+  $('other').onclick = () => show('setup');
+  $('copyuri').onclick = async () => {
+    try { await navigator.clipboard.writeText(redirectUri); toast('Adres gekopieerd'); }
+    catch (e) {
+      const r = document.createRange(); r.selectNode($('uri'));
+      getSelection().removeAllRanges(); getSelection().addRange(r);
+      toast('Adres geselecteerd, kopieer met Ctrl+C');
+    }
+  };
 
   // ---------- Start ----------
   async function init() {
@@ -436,7 +901,7 @@
 
     const warn = $('uriwarn');
     if (location.protocol === 'file:') {
-      warn.textContent = 'Je opent dit bestand direct van je schijf. Spotify heeft een webadres nodig. Start een lokale server (zie de uitleg in de chat) en open dan het adres met 127.0.0.1.';
+      warn.textContent = 'Je opent dit bestand direct van je schijf. Spotify heeft een webadres nodig. Zet het online (bijvoorbeeld op GitHub Pages) of start een lokale server en open het adres met 127.0.0.1.';
       warn.classList.add('on');
     } else if (location.hostname === 'localhost') {
       warn.textContent = 'Spotify accepteert "localhost" niet meer als redirect. Open deze pagina via 127.0.0.1 in plaats van localhost.';
@@ -445,7 +910,8 @@
 
     await handleCallback();
     if (await getToken()) { show('idle'); startPolling(); }
-    else show('setup');
+    else show(getCid() ? 'login' : 'setup');
+    if (CLIENT_ID) $('other').style.display = 'none';
     requestAnimationFrame(tick);
   }
   init();
