@@ -238,6 +238,21 @@
   .linkbtn { color: var(--muted); text-decoration: underline; font-size: 14px; }
   .linkbtn:hover { color: var(--text); }
 
+  /* Alleen de cover */
+  #unclean {
+    position: fixed; top: max(14px, env(safe-area-inset-top)); right: 14px; z-index: 8;
+    width: 44px; height: 44px; display: none; place-items: center; border-radius: 50%;
+    background: rgba(0,0,0,0.35); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+    color: var(--text); opacity: 0; transition: opacity .4s;
+  }
+  #unclean svg { width: 22px; height: 22px; }
+  body.clean.inplayer #unclean { display: grid; }
+  body.clean.peek #unclean, #unclean:hover, #unclean:focus-visible { opacity: 1; }
+  body.clean .topbar, body.clean .bottom, body.clean #mini { display: none; }
+  body.clean #player.on { display: flex; padding: max(16px, env(safe-area-inset-top)) 16px max(16px, env(safe-area-inset-bottom)); }
+  body.clean .stage { padding: 0; grid-row: auto; grid-column: auto; }
+  body.clean .coverwrap { height: min(100%, calc(100vw - 32px)); }
+
   /* Liggende telefoon: cover links, info rechts */
   @media (orientation: landscape) and (max-height: 540px) {
     #player.on { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.1fr); grid-template-rows: auto minmax(0, 1fr); column-gap: 28px; }
@@ -310,6 +325,9 @@
     </div>
     <button class="iconbtn" id="qbtn" title="Wachtrij (q)" aria-label="Wachtrij">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 6h12M4 12h12M4 18h7"/><path d="M17 14l5 3-5 3z" fill="currentColor"/></svg>
+    </button>
+    <button class="iconbtn" id="cleanbtn" title="Alleen cover tonen (h)" aria-label="Alleen cover tonen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.9 17.9A10.4 10.4 0 0 1 12 19.5C6 19.5 2.5 12 2.5 12a17 17 0 0 1 4.1-5.3M9.9 4.6A9.7 9.7 0 0 1 12 4.5c6 0 9.5 7.5 9.5 7.5a17 17 0 0 1-2.2 3.3M14.1 14.1a3 3 0 1 1-4.2-4.2M3 3l18 18"/></svg>
     </button>
     <button class="iconbtn" id="fs" title="Volledig scherm (f)" aria-label="Volledig scherm">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M21 8V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
@@ -396,12 +414,16 @@
       <dt><kbd>m</kbd></dt><dd>Dempen</dd>
       <dt><kbd>s</kbd> <kbd>r</kbd></dt><dd>Shuffle en herhalen</dd>
       <dt><kbd>q</kbd></dt><dd>Wachtrij tonen</dd>
+      <dt><kbd>h</kbd></dt><dd>Alleen de cover tonen of de bediening terughalen</dd>
       <dt><kbd>f</kbd></dt><dd>Volledig scherm, of dubbelklik op de cover</dd>
     </dl>
   </div>
 </div>
 
 <div id="mini"><i></i></div>
+<button id="unclean" title="Bediening tonen (h)" aria-label="Bediening tonen">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2.5 12S6 4.5 12 4.5 21.5 12 21.5 12 18 19.5 12 19.5 2.5 12 2.5 12z"/><circle cx="12" cy="12" r="3"/></svg>
+</button>
 <div id="toast"></div>
 
 <script>
@@ -434,6 +456,7 @@
   }
   function show(which) {
     ['setup', 'login', 'idle', 'player'].forEach(id => $(id).classList.toggle('on', id === which));
+    document.body.classList.toggle('inplayer', which === 'player');
     if (which !== 'player') { document.body.classList.remove('idle', 'playing'); }
   }
   const b64url = buf => btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -817,6 +840,16 @@
     else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen();
   }
   $('fs').onclick = toggleFs;
+
+  // Alleen de cover tonen
+  function setClean(on) {
+    document.body.classList.toggle('clean', on);
+    store.set('sp_clean', on ? '1' : '0');
+    if (on) { toggleQueue(false); $('help').classList.remove('on'); }
+    wake();
+  }
+  $('cleanbtn').onclick = () => setClean(true);
+  $('unclean').onclick = () => setClean(false);
   cw.addEventListener('dblclick', toggleFs);
   $('logout').onclick = logout;
   $('helpbtn').onclick = () => $('help').classList.toggle('on');
@@ -842,9 +875,11 @@
   }
 
   // Bediening verbergen na 5 seconden rust in volledig scherm
-  let idleT;
+  let idleT, peekT;
   function wake() {
     document.body.classList.remove('idle');
+    document.body.classList.add('peek');
+    clearTimeout(peekT); peekT = setTimeout(() => document.body.classList.remove('peek'), 3000);
     clearTimeout(idleT);
     if (document.fullscreenElement && $('player').classList.contains('on') && !queueEl.classList.contains('open') && !$('help').classList.contains('on')) {
       idleT = setTimeout(() => document.body.classList.add('idle'), 5000);
@@ -874,6 +909,7 @@
     else if (k === 'r') cycleRepeat();
     else if (k === 'q') toggleQueue();
     else if (k === 'f') toggleFs();
+    else if (k === 'h') setClean(!document.body.classList.contains('clean'));
     else if (e.key === '?') $('help').classList.toggle('on');
   });
 
@@ -908,6 +944,7 @@
       warn.classList.add('on');
     }
 
+    if (store.get('sp_clean') === '1') document.body.classList.add('clean');
     await handleCallback();
     if (await getToken()) { show('idle'); startPolling(); }
     else show(getCid() ? 'login' : 'setup');
